@@ -39,5 +39,16 @@ class GatewayIntegration(unittest.TestCase):
         with self.assertRaisesRegex(GatewayError, 'HTTP 401'):
             client.call_tool(self.agent.endpoint('transactions'), 'list_recent_transactions', {'account_id': 'DEMO-001'})
 
+    def test_sse_progress_and_exchanged_results_through_gateway(self):
+        events = []
+        data = self.agent.account_overview(['accounts', 'transactions'], stream=True,
+            on_progress=lambda name, event: events.append((name, event)))
+        for name in ('accounts', 'transactions'):
+            progress = [event for server, event in events if server == name]
+            self.assertEqual([event['progress'] for event in progress], [1, 2])
+            self.assertTrue(all(event['total'] == 2 for event in progress))
+            self.check_receipt(name, data[name]['verified_upstream_identity'])
+        self.assertEqual(len(data['transactions']['transactions']), 3)
+
 
 if __name__ == '__main__': unittest.main()

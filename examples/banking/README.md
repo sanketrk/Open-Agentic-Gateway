@@ -1,10 +1,11 @@
 # Banking examples: agents, MCP, and token exchange
 
-Run a banking orchestrator through Open Agentic Gateway in three ways:
+Run a banking orchestrator through Open Agentic Gateway in four ways:
 
 1. **Agent → agent:** request a transaction summary from an A2A transaction-review agent.
 2. **Agent → one MCP server:** call `get_account_summary` on the account service.
 3. **Agent → multiple MCP servers:** combine an account summary with `list_recent_transactions` from a separate service.
+4. **Agent → MCP over SSE:** receive live progress notifications followed by each tool result.
 
 Every authenticated route uses the generic `token-exchange` plugin. The caller gets a gateway access token; the gateway validates it and requests a different backend token using the [RFC 8693](https://www.rfc-editor.org/rfc/rfc8693) exchange grant. The caller never receives the exchanged token or the gateway's STS credentials.
 
@@ -77,7 +78,7 @@ docker compose -f examples/banking/compose.yml run --rm banking-orchestrator mcp
 
 The orchestrator reads OAuth protected-resource metadata, obtains an account-specific gateway token, and performs `initialize`, `notifications/initialized`, `tools/list`, and `tools/call`. It requests `get_account_summary` for synthetic account `DEMO-001`, returning its INR balance and status.
 
-The MCP fixtures use the gateway's [2025-11-25 Streamable HTTP compatibility profile](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports), with POST JSON responses and a stateless server. Requests send `Accept: application/json, text/event-stream`; notifications return HTTP 202. These examples do not exercise the newer POST-only profile or SSE resumption.
+The MCP fixtures use the gateway's [2025-11-25 Streamable HTTP compatibility profile](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports), with POST JSON or SSE responses and stateless servers. Requests send `Accept: application/json, text/event-stream`; notifications return HTTP 202. These examples do not exercise the newer POST-only profile or SSE resumption.
 
 ## 3. An agent calls multiple MCP servers
 
@@ -86,6 +87,18 @@ docker compose -f examples/banking/compose.yml run --rm banking-orchestrator mcp
 ```
 
 The same orchestrator obtains a separate gateway token for each MCP audience, opens each server independently, and combines the account summary with three synthetic recent transactions. Each request is exchanged for that server's backend audience and scopes. An account token cannot be reused against the transactions endpoint.
+
+## 4. Stream MCP tool responses over SSE
+
+```sh
+docker compose -f examples/banking/compose.yml run --rm banking-orchestrator mcp-sse accounts transactions
+```
+
+Use the startup/build commands above after upgrading to rebuild the SDK and demo images. Each tool advertises an optional `stream` boolean argument. The `mcp-sse` scenario sets it and supplies an MCP progress token. Initialization and discovery still return JSON; the tool call returns `Content-Type: text/event-stream`, two `notifications/progress` events, and the correlated JSON-RPC result. Both servers flush each event immediately. The orchestrator prints progress as it arrives, then prints the final banking data and verified identity receipts. The `all` scenario includes this SSE run.
+
+The gateway proxies the stream with buffering disabled. Token exchange and backend verification run before streaming starts. The SDK consumes SSE incrementally, supports comments and multiline data, matches the response ID and progress token, and closes the stream after the final response. Its existing 1 MiB response limit and socket timeout also apply to SSE.
+
+This demonstrates POST-based Streamable HTTP SSE responses. It does not add legacy GET subscription streams, persistent sessions, event replay/resumption, or A2A streaming. A disconnected stream fails; the SDK does not retry a tool call automatically.
 
 Successful A2A `SendMessage` responses and MCP tool results include a demonstration `verified_upstream_identity` receipt. For accounts it looks like:
 
@@ -109,7 +122,7 @@ Run all scenarios:
 docker compose -f examples/banking/compose.yml run --rm banking-orchestrator all
 ```
 
-The responders mandate SDK verification before dispatch. CI integration tests assert that exchanged identities match each backend and that a wrong gateway audience is rejected. Fixture tests also verify that broad subject scopes are reduced to one target scope, that a missing required caller scope blocks exchange, that backends reject original gateway tokens and tokens for a different backend, and that the STS rejects expired subjects and expanded scopes. CI runs both these tests and this real Kong/Compose demo.
+The responders mandate SDK verification before dispatch. CI integration tests assert that exchanged identities match each backend that a wrong gateway audience is rejected, and that both MCP tools deliver SSE progress followed by the expected exchanged-identity results. Fixture tests also verify that broad subject scopes are reduced to one target scope, that a missing required caller scope blocks exchange, that backends reject original gateway tokens and tokens for a different backend, and that the STS rejects expired subjects and expanded scopes. CI runs both these tests and this real Kong/Compose demo.
 
 The backend services have no published ports and join only the internal `backends` network; the caller joins only `agents`. Backend HTTP is isolated to this local demo network. Use your deployment's authenticated encrypted backend transport and network controls when adapting the topology.
 

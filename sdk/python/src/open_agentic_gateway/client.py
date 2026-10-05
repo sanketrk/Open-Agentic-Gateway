@@ -34,16 +34,52 @@ class _Transport:
             context=ssl.create_default_context(cafile=ca_file)))
         self.timeout = timeout
 
-    def request(self, url, data=None, headers=None):
+    def request(self, url, data=None, headers=None, on_notification=None):
         req = urllib.request.Request(url, data=data, headers=headers or {})
         try: response = self.http.open(req, timeout=self.timeout)
         except urllib.error.HTTPError as error: response = error
         with response:
+            if response.status >= 300: raise GatewayError(f"HTTP {response.status}")
+            if response.headers.get_content_type() == "text/event-stream":
+                request = json.loads(data) if data else {}
+                if "id" not in request: raise GatewayError("Unexpected SSE response")
+                return response.status, _read_sse(response, request["id"], on_notification)
             body = response.read(1048577)
             if len(body) > 1048576: raise GatewayError("Response exceeds SDK size limit")
             if response.status >= 300: raise GatewayError(f"HTTP {response.status}")
             try: return response.status, json.loads(body) if body else None
             except (ValueError, UnicodeError): raise GatewayError("Invalid JSON response") from None
+
+
+def _read_sse(response, request_id, on_notification=None):
+    """Consume bounded UTF-8 SSE frames until the correlated RPC response arrives."""
+    total, fields, event = 0, [], ""
+    while True:
+        line = response.readline(1048577)
+        total += len(line)
+        if total > 1048576: raise GatewayError("Response exceeds SDK size limit")
+        if not line: raise GatewayError("SSE stream ended before RPC response")
+        try: line = line.decode("utf-8").rstrip("\r\n")
+        except UnicodeError: raise GatewayError("Invalid UTF-8 SSE response") from None
+        if not line:
+            if fields and event in ("", "message"):
+                try: message = json.loads("\n".join(fields))
+                except ValueError: raise GatewayError("Invalid JSON SSE event") from None
+                if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
+                    raise GatewayError("Invalid RPC SSE event")
+                if "id" in message:
+                    if message["id"] != request_id or "method" in message:
+                        raise GatewayError("Unexpected RPC SSE response")
+                    return message
+                if not isinstance(message.get("method"), str):
+                    raise GatewayError("Invalid RPC SSE notification")
+                if on_notification: on_notification(message)
+            fields, event = [], ""
+        elif not line.startswith(":"):
+            field, _, value = line.partition(":")
+            if value.startswith(" "): value = value[1:]
+            if field == "data": fields.append(value)
+            elif field == "event": event = value
 
 
 class TokenProvider(Protocol):
@@ -100,7 +136,7 @@ class GatewayClient:
         self.token_provider = token_provider
         self.transport = _Transport(ca_file)
 
-    def _rpc(self, endpoint, token, method, params, notification=False):
+    def _rpc(self, endpoint, token, method, params, notification=False, on_notification=None):
         if endpoint.protocol == "mcp" and endpoint.audience != self.gateway_url + endpoint.path:
             raise ValueError("MCP audience must equal its public gateway resource URI")
         if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", token):
@@ -110,7 +146,8 @@ class GatewayClient:
         headers = {"Content-Type": "application/json", "Authorization": "Bearer " + token}
         if endpoint.protocol == "a2a": headers["A2A-Version"] = "1.0"
         else: headers.update({"Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-11-25"})
-        status, data = self.transport.request(self.gateway_url + endpoint.path, json.dumps(body).encode(), headers)
+        options = {"on_notification": on_notification} if on_notification else {}
+        status, data = self.transport.request(self.gateway_url + endpoint.path, json.dumps(body).encode(), headers, **options)
         if notification:
             if status != 202: raise GatewayError("Expected accepted notification")
             return None
@@ -143,7 +180,7 @@ class GatewayClient:
         return self._rpc(endpoint, token, "SendMessage", {"message": {
             "messageId": str(uuid.uuid4()), "role": "ROLE_USER", "parts": [{"text": text}]}})
 
-    def call_tool(self, endpoint, name, arguments):
+    def call_tool(self, endpoint, name, arguments, *, on_progress=None):
         if endpoint.protocol != "mcp": raise ValueError("An MCP endpoint is required")
         if endpoint.audience != self.gateway_url + endpoint.path:
             raise ValueError("MCP audience must equal its public gateway resource URI")
@@ -157,6 +194,15 @@ class GatewayClient:
         self._rpc(endpoint, token, "notifications/initialized", {}, notification=True)
         tools = self._rpc(endpoint, token, "tools/list", {})["tools"]
         if not any(tool.get("name") == name for tool in tools): raise GatewayError("Tool is not advertised")
-        result = self._rpc(endpoint, token, "tools/call", {"name": name, "arguments": arguments})
+        params = {"name": name, "arguments": arguments}
+        progress_token = str(uuid.uuid4())
+        def notification(message):
+            progress = message.get("params", {})
+            if (message.get("method") == "notifications/progress" and isinstance(progress, dict)
+                    and progress.get("progressToken") == progress_token):
+                on_progress(progress)
+        if on_progress: params["_meta"] = {"progressToken": progress_token}
+        result = self._rpc(endpoint, token, "tools/call", params,
+                           on_notification=notification if on_progress else None)
         if result.get("isError"): raise GatewayError("MCP tool reported an error")
         return result

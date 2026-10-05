@@ -76,8 +76,20 @@ The banking fixture's `token_use` and `verified_upstream_identity` receipt are d
 
 ## Current profile
 
-Version `0.1.0` provides synchronous A2A 1.0 `SendMessage`/public card reads and MCP 2025-11-25 stateless initialization, metadata checks, tool discovery and calls, with JSON responses. It is a small gateway SDK, not a replacement for a complete protocol SDK. SSE, resumable or stateful MCP sessions, A2A task lifecycle, async clients, and automatic token/key refresh are outside this initial profile. The backend verifier uses an explicitly supplied public signing JWKS with distinct `kid` values; reload trusted keys when your issuer rotates them. Opaque backend tokens need a different verifier and are not supported by this JWT guard.
+Version `0.1.0` provides synchronous A2A 1.0 `SendMessage`/public card reads and MCP 2025-11-25 stateless initialization, metadata checks, tool discovery and calls, with JSON or POST SSE responses. It is a small gateway SDK, not a replacement for a complete protocol SDK. Resumable or stateful MCP sessions, A2A task lifecycle, async clients, and automatic token/key refresh are outside this initial profile. The backend verifier uses an explicitly supplied public signing JWKS with distinct `kid` values; reload trusted keys when your issuer rotates them. Opaque backend tokens need a different verifier and are not supported by this JWT guard.
 
 See the [four banking components](../../examples/banking/README.md) for runnable Docker images and complete middleware integration.
 
 A2A 1.0 synchronous SendMessage is available through JSON-RPC and HTTP+JSON/REST. Select `binding="HTTP+JSON"` on the SDK A2A `Endpoint` and use the advertised REST base path; the token audience stays the agent gateway audience. Token exchange and backend verification are identical for both bindings.
+
+### MCP SSE responses and progress
+
+`call_tool()` accepts JSON or `text/event-stream` responses and returns the final tool result. To receive progress while the response is streaming:
+
+```python
+result = gateway.call_tool(accounts, "get_account_summary",
+    {"account_id": "DEMO-001", "stream": True},
+    on_progress=lambda event: print(event["progress"], event.get("message"), flush=True))
+```
+
+The `stream` argument is specific to the banking example tools; other MCP servers choose their own response format. The SDK supplies `_meta.progressToken` when a callback is provided and delivers only progress notifications matching that token. It reads SSE events incrementally and checks the final JSON-RPC response ID. Callbacks run synchronously and their exceptions propagate. The 1 MiB cumulative response limit and socket timeout apply to streams; premature EOF, malformed events, and unexpected response IDs raise `GatewayError`. The stream is closed after the final response. GET streams, session persistence, resumption, and automatic retries are not implemented.

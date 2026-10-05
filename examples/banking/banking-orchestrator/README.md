@@ -17,3 +17,5 @@ See the [banking setup](../README.md) for credentials, gateway configuration and
 A2A 1.0 synchronous SendMessage is available through JSON-RPC and HTTP+JSON/REST. Select `binding="HTTP+JSON"` on the SDK A2A `Endpoint` and use the advertised REST base path; the token audience stays the agent gateway audience. Token exchange and backend verification are identical for both bindings.
 
 Run the REST banking scenario: `docker compose -f examples/banking/compose.yml run --rm banking-orchestrator a2a-rest`. The `all` scenario runs both bindings.
+
+Run the SSE banking scenario: `docker compose -f examples/banking/compose.yml run --rm banking-orchestrator mcp-sse accounts transactions`. Both MCP tools support an optional `stream: true` argument, emitting progress events and the final result over POST SSE. The `all` scenario also includes this run.

@@ -28,18 +28,21 @@ class BankingOrchestrator:
         if expected not in card.get("supportedInterfaces", []): raise ValueError("Unexpected review-agent interface")
         return self.gateway.send_message(self.endpoint("review", binding), "Summarize synthetic merchant purchase DEMO-TX-003.")
 
-    def account_overview(self, servers):
+    def account_overview(self, servers, *, stream=False, on_progress=None):
         results = {}
         for name in servers:
             tool = "get_account_summary" if name == "accounts" else "list_recent_transactions"
-            result = self.gateway.call_tool(self.endpoint(name), tool, {"account_id": "DEMO-001"})
+            arguments = {"account_id": "DEMO-001"}
+            if stream: arguments["stream"] = True
+            callback = (lambda progress, server=name: on_progress(server, progress)) if on_progress else None
+            result = self.gateway.call_tool(self.endpoint(name), tool, arguments, on_progress=callback)
             results[name] = json.loads(result["content"][0]["text"])
         return results
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("scenario", choices=("a2a", "a2a-rest", "mcp", "all"))
+    parser.add_argument("scenario", choices=("a2a", "a2a-rest", "mcp", "mcp-sse", "all"))
     parser.add_argument("servers", nargs="*", metavar="SERVER", help="accounts and/or transactions")
     args = parser.parse_args()
     if set(args.servers) - {"accounts", "transactions"}: parser.error("servers must be accounts or transactions")
@@ -50,6 +53,12 @@ def main():
         print(json.dumps({"scenario": "agent-to-agent-rest", "response": agent.review_transaction("HTTP+JSON")}, indent=2))
     if args.scenario in ("mcp", "all"):
         print(json.dumps({"scenario": "agent-to-mcp", "servers": agent.account_overview(args.servers or ["accounts", "transactions"])}, indent=2))
+
+    if args.scenario in ("mcp-sse", "all"):
+        def progress(server, event):
+            print(json.dumps({"scenario": "agent-to-mcp-sse", "server": server, "progress": event}), flush=True)
+        data = agent.account_overview(args.servers or ["accounts", "transactions"], stream=True, on_progress=progress)
+        print(json.dumps({"scenario": "agent-to-mcp-sse", "servers": data}, indent=2))
 
 
 if __name__ == "__main__": main()

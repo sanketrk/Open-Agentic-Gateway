@@ -1,5 +1,6 @@
 """Small HTTP adapters shared by the standalone banking examples."""
 import json
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from open_agentic_gateway import AuthenticationError
@@ -28,6 +29,28 @@ class DemoHandler(BaseHTTPRequestHandler):
 
     def result(self, value):
         return self.send(200, {"jsonrpc": "2.0", "id": self.request_id, "result": value})
+
+    def streamed_result(self, value, progress_token):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+        def event(message):
+            self.wfile.write(("event: message\ndata: " + json.dumps(message) + "\n\n").encode())
+            self.wfile.flush()
+        try:
+            self.wfile.write(b": banking tool stream\n\n")
+            self.wfile.flush()
+            if progress_token is not None:
+                for progress, text in ((1, "Reading synthetic account data"), (2, "Preparing result")):
+                    event({"jsonrpc": "2.0", "method": "notifications/progress", "params": {
+                        "progressToken": progress_token, "progress": progress, "total": 2, "message": text}})
+                    time.sleep(0.1)
+            event({"jsonrpc": "2.0", "id": self.request_id, "result": value})
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Client disconnected; no second response can be sent.
 
     def rpc_error(self, code, text):
         return self.send(200, {"jsonrpc": "2.0", "id": self.request_id,

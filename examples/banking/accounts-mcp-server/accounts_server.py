@@ -23,7 +23,8 @@ def dispatch(request, message, claims):
     if method == "notifications/initialized": return request.send(202)
     if method == "tools/list":
         return request.result({"tools": [{"name": TOOL, "description": "Read-only synthetic banking data",
-            "inputSchema": {"type": "object", "properties": {"account_id": {"type": "string", "enum": ["DEMO-001"]}},
+            "inputSchema": {"type": "object", "properties": {"account_id": {"type": "string", "enum": ["DEMO-001"]},
+                "stream": {"type": "boolean", "default": False, "description": "Return the result over SSE"}},
                             "required": ["account_id"], "additionalProperties": False}}]})
     if method == "tools/call":
         if params.get("name") != TOOL: return request.rpc_error(-32602, "Unknown tool")
@@ -32,7 +33,12 @@ def dispatch(request, message, claims):
             return request.result({"content": [{"type": "text", "text": "Only synthetic account DEMO-001 is accessible"}], "isError": True})
         data = dict(ACCOUNT)
         data["verified_upstream_identity"] = receipt(claims)
-        return request.result({"content": [{"type": "text", "text": json.dumps(data)}], "isError": False})
+        result = {"content": [{"type": "text", "text": json.dumps(data)}], "isError": False}
+        if arguments.get("stream") is True:
+            if "text/event-stream" not in request.headers.get("Accept", ""):
+                return request.send(406, {"error": "SSE Accept required"})
+            return request.streamed_result(result, params.get("_meta", {}).get("progressToken"))
+        return request.result(result)
     return request.rpc_error(-32601, "Method not demonstrated")
 
 

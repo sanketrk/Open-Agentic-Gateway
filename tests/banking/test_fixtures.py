@@ -17,6 +17,7 @@ import jwt
 
 from banking_demo.config import (AGENT_ID, EXCHANGE_ID, ISSUER, POLICIES, ACCESS_TOKEN, EXCHANGE_GRANT)
 from open_agentic_gateway import GatewayError, OAuthClientCredentials
+from open_agentic_gateway.client import _Transport
 from banking_demo.prepare import prepare
 from banking_demo.issuer import handler as issuer_handler, public_key, issue
 from review_agent import handler as review_handler
@@ -162,6 +163,26 @@ class BankingFixtures(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(response['result']['message']['role'], 'ROLE_AGENT')
         self.assertEqual(response['result']['message']['metadata']['verified_upstream_identity']['actor'], EXCHANGE_ID)
+
+    def test_sse_tools_use_verified_tokens_and_deliver_progress(self):
+        for name, tool in (('accounts', 'get_account_summary'), ('transactions', 'list_recent_transactions')):
+            with self.subTest(name=name):
+                body = json.dumps({'jsonrpc': '2.0', 'id': 'stream-test', 'method': 'tools/call', 'params': {
+                    'name': tool, 'arguments': {'account_id': 'DEMO-001', 'stream': True},
+                    '_meta': {'progressToken': 'progress-test'}}}).encode()
+                headers = {'Authorization': 'Bearer ' + self.upstream_token(name),
+                           'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream'}
+                events = []
+                status, response = _Transport(timeout=3).request(self.urls[name] + '/mcp', body, headers,
+                                                                on_notification=events.append)
+                self.assertEqual(status, 200)
+                self.assertEqual([e['params']['progress'] for e in events], [1, 2])
+                self.assertEqual(response['id'], 'stream-test')
+                data = json.loads(response['result']['content'][0]['text'])
+                self.assertEqual(data['verified_upstream_identity']['audience'], POLICIES[name]['resource'])
+                headers['Authorization'] = 'Bearer ' + self.gateway_token(name)
+                with self.assertRaisesRegex(GatewayError, 'HTTP 401'):
+                    _Transport(timeout=3).request(self.urls[name] + '/mcp', body, headers)
 
     def test_rest_message_requires_exchanged_token(self):
         message = {'message': {'messageId': 'rest-demo', 'role': 'ROLE_USER', 'parts': [{'text': 'Review'}]}}

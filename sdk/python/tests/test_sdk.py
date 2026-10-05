@@ -1,5 +1,6 @@
 """Security boundaries and protocol lifecycle of the shared gateway SDK."""
 import json
+import io
 import time
 import unittest
 from unittest.mock import patch
@@ -8,6 +9,32 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from open_agentic_gateway import AuthenticationError, Endpoint, ExchangeTokenVerifier, GatewayClient, GatewayError
+from open_agentic_gateway.client import _read_sse
+
+
+class SSETests(unittest.TestCase):
+    def test_progress_is_delivered_before_reading_final_response(self):
+        events = []
+        progress = {'jsonrpc': '2.0', 'method': 'notifications/progress', 'params': {'progress': 1}}
+        result = {'jsonrpc': '2.0', 'id': 'call', 'result': {'content': []}}
+        class Stream(io.BytesIO):
+            def readline(inner, size=-1):
+                line = super().readline(size)
+                if b'"result"' in line:
+                    self.assertEqual(events, [progress])
+                return line
+        body = (': heartbeat\r\n\r\nevent: message\r\ndata: ' + json.dumps(progress) + '\r\n\r\n'
+                + 'id: ignored\nevent: message\ndata: {"jsonrpc": "2.0",\n'
+                + 'data: "id": "call", "result": {"content": []}}\n\n').encode()
+        self.assertEqual(_read_sse(Stream(body), 'call', events.append), result)
+
+    def test_rejects_truncated_malformed_wrong_id_and_oversized_streams(self):
+        for body in (b': heartbeat\n\n', b'data: invalid\n\n', b'data: []\n\n',
+                     b'data: {"jsonrpc":"2.0","id":"wrong","result":{}}\n\n',
+                     b'data: {"jsonrpc":"2.0","id":"call","result":{}}\n',
+                     b'data: \xff\n\n', b':' + b'x' * 1048576):
+            with self.subTest(body=body[:50]), self.assertRaises(GatewayError):
+                _read_sse(io.BytesIO(body), 'call')
 
 
 class ExchangeVerificationTests(unittest.TestCase):
@@ -104,6 +131,27 @@ class GatewayClientTests(unittest.TestCase):
         endpoint = Endpoint(path='/mcp/accounts', audience='urn:backend:accounts', scopes=('read',), protocol='mcp')
         with self.assertRaises(ValueError): self.client.call_tool(endpoint, 'summary', {})
         self.assertEqual(self.grants, [])
+
+    def test_tool_progress_callback_is_correlated_to_requested_token(self):
+        endpoint = Endpoint(path='/mcp/accounts', audience='https://gateway.example/mcp/accounts',
+                            scopes=('accounts:read',), protocol='mcp')
+        events = []
+        def request(url, data=None, headers=None, on_notification=None):
+            if data is None: return 200, {'resource': endpoint.audience}
+            message = json.loads(data)
+            if 'id' not in message: return 202, None
+            results = {'initialize': {'protocolVersion': '2025-11-25'},
+                       'tools/list': {'tools': [{'name': 'summary'}]}, 'tools/call': {'content': []}}
+            if message['method'] == 'tools/call':
+                token = message['params']['_meta']['progressToken']
+                for value in ('unrelated', token):
+                    on_notification({'jsonrpc': '2.0', 'method': 'notifications/progress',
+                                     'params': {'progressToken': value, 'progress': 1}})
+            return 200, {'jsonrpc': '2.0', 'id': message['id'], 'result': results[message['method']]}
+        with patch.object(self.client.transport, 'request', side_effect=request):
+            self.client.call_tool(endpoint, 'summary', {}, on_progress=events.append)
+        self.assertEqual(len(events), 1)
+        self.assertNotEqual(events[0]['progressToken'], 'unrelated')
 
     def test_a2a_uses_gateway_token_and_checks_rpc_correlation(self):
         endpoint = Endpoint(path='/a2a/review', audience='urn:gateway:review', scopes=('review',), protocol='a2a')
