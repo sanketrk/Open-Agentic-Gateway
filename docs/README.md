@@ -8,6 +8,8 @@
 | [Control-plane setup](control-plane/setup.md) | Generic OIDC, registry API/UI, and publication |
 | [Optional Auth0 setup](providers/auth0.md) | Application/API grants, roles, callbacks, and troubleshooting |
 | [Protocol interoperability](protocols/interoperability.md) | Implemented profiles and their limits |
+| [Gateway comparison](protocols/interoperability.md#gateway-comparison-with-apigee) | MCP/A2A proxy responsibilities compared with Apigee products |
+| [Protocol revision tracking](protocols/interoperability.md#tracking-mcp-and-a2a-revisions) | Reviewed gateway/SDK versions, official sources, and compatibility-review workflow |
 | [A2A plugin](protocols/a2a.md) | JSON-RPC and REST transport, Agent Cards, authentication, and configuration |
 | [Token exchange](plugins/token-exchange.md) | RFC 8693 MCP/A2A upstream exchange and credential mounting |
 | [Python SDK](../sdk/python/README.md) | Gateway clients and mandatory JWT exchange policy for responders |

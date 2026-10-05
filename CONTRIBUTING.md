@@ -60,6 +60,10 @@ The banking discovery suite skips tests that require a running Compose topology.
 
 For documentation changes, check links, commands, and any Mermaid diagram syntax. Keep the README focused on purpose and value, and put implementation details in the linked guides.
 
+## Protocol compatibility changes
+
+Follow the [MCP/A2A revision workflow](docs/protocols/interoperability.md#tracking-mcp-and-a2a-revisions) when adopting an upstream revision. Include versioned specification references, identify the gateway-owned changes, preserve intended legacy compatibility, and update the support inventory. CI checks committed profiles; new upstream versions do not become supported automatically. Keep gateway, SDK, and example claims separate.
+
 ## Send a pull request
 
 Explain the problem, the resulting behavior, and how you verified it. Link the proposal or bug report when relevant. Include any new dependencies and their licenses. A new feature should come with an example a reviewer can run.
