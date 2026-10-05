@@ -95,4 +95,9 @@ reset(); state.path=config.rest_path.."/unknown"; expect(404)
 reset(); state.path=config.rest_path.."/message:send"; state.body="{}"; state.headers["a2a-version"]="0.3"; expect(400)
 assert(state.response.body.error.details[1].reason=="VERSION_NOT_SUPPORTED")
 reset(); state.path=config.rest_path.."/message:send"; state.body="{}"; state.query["A2A-Version"]="1.0"; expect(400)
+for _, media_type in ipairs({"application/a2a+json", "application/a2a+json; charset=utf-8", "application/json"}) do
+  reset(); state.path=config.rest_path.."/message:stream"; state.body="{}"; state.headers["content-type"]=media_type
+  gateway:access(config); assert(not state.response and calls==1 and state.upstream_path=="/api/message:stream")
+end
+reset(); state.path=config.rest_path.."/message:stream"; state.body="{}"; state.headers["content-type"]="text/plain"; expect(415)
 print("A2A transport, discovery, versioning, and authentication checks passed.")

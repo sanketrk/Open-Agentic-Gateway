@@ -21,6 +21,7 @@ ENV KONG_DATABASE=off \
     KONG_PLUGINS=bundled,mcp,a2a,token-exchange \
     KONG_NGINX_HTTP_INCLUDE=/etc/kong/nginx-extra.conf \
     KONG_NGINX_HTTP_CLIENT_MAX_BODY_SIZE=10m \
+    KONG_NGINX_PROXY_PROXY_IGNORE_CLIENT_ABORT=off \
     KONG_LUA_SSL_TRUSTED_CERTIFICATE=/etc/ssl/certs/ca-certificates.crt
 
 USER 1001

@@ -47,6 +47,8 @@ spec:
               value: bundled,mcp,a2a,token-exchange
             - name: KONG_NGINX_HTTP_INCLUDE
               value: /etc/kong/nginx-extra.conf
+            - name: KONG_NGINX_PROXY_PROXY_IGNORE_CLIENT_ABORT
+              value: "off"
             - name: KONG_NGINX_HTTP_CLIENT_MAX_BODY_SIZE
               value: 10m
             - name: KONG_LUA_SSL_TRUSTED_CERTIFICATE

@@ -36,6 +36,7 @@ jobs:
           ruby tests/validate-banking.rb
           python3 -m pip install -e sdk/python
           python3 -m unittest discover -s sdk/python/tests -v
+          PYTHONPATH=tests/streaming python3 -m unittest discover -s tests/streaming -p test_fixture.py -v
           PYTHONPATH=examples/banking/infrastructure:examples/banking/transaction-review-agent:examples/banking/accounts-mcp-server:examples/banking/transactions-mcp-server python3 -m unittest discover -s tests/banking -v
           ruby -ryaml -rjson - <<'RUBY'
           gateway = YAML.load_file("gateway/config/kong.yml")
@@ -111,3 +112,13 @@ jobs:
           docker compose -f examples/banking/compose.yml run --rm --entrypoint python \
             --env BANKING_INTEGRATION=1 --volume "$PWD/tests/banking/test_end_to_end.py:/demo/test_end_to_end.py:ro" \
             banking-orchestrator -m unittest -v test_end_to_end
+      - name: Exercise gateway streaming independently of banking examples
+        timeout-minutes: 5
+        env:
+          STREAMING_GATEWAY_IMAGE: open-agentic-gateway:ci
+        run: |
+          docker compose -f tests/streaming/compose.yml build prepare fixture tests
+          trap 'docker compose -f tests/streaming/compose.yml logs --no-color; docker compose -f tests/streaming/compose.yml down -v' EXIT
+          docker compose -f tests/streaming/compose.yml run --rm prepare
+          docker compose -f tests/streaming/compose.yml up -d --wait --wait-timeout 120 fixture gateway
+          docker compose -f tests/streaming/compose.yml run --rm tests

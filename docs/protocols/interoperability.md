@@ -27,13 +27,13 @@ JWT access tokens are verified against explicitly configured issuer/discovery pa
 
 An optional [RFC 8693 exchange plugin](../plugins/token-exchange.md) obtains separate backend tokens after incoming-token validation. It requires an explicitly trusted STS; issued tokens are validated by the backend.
 
-No universal MCP conformance or provider certification is claimed. Live tests still need a conforming agent, authorization server, and upstream MCP server. Unit/runtime tests validate this gateway's implemented boundaries.
+No universal MCP conformance or provider certification is claimed. Live tests still need a conforming agent, authorization server, and upstream MCP server. Unit/runtime tests validate this gateway's implemented boundaries. The independent [gateway streaming suite](../gateway/setup.md#gateway-streaming-integration-tests) exercises real Kong with controlled MCP/A2A upstreams, including current-revision MCP POST streams and subscriptions.
 
 References: [MCP Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http), [MCP authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization), [resource indicators](https://www.rfc-editor.org/rfc/rfc8707), [protected-resource metadata](https://www.rfc-editor.org/rfc/rfc9728), [bearer tokens](https://www.rfc-editor.org/rfc/rfc6750).
 
 ## A2A transport profile
 
-The optional [A2A plugin](a2a.md) validates JSON-RPC HTTP requests, version selection, and JWT authorization while proxying Agent Cards and unbuffered responses. It supports 1.0/0.3 transport profiles, with task semantics and card accuracy enforced by upstream agents. It does not implement gRPC, REST, protocol translation, or complete A2A conformance.
+The optional [A2A plugin](a2a.md) validates JSON-RPC HTTP requests, version selection, and JWT authorization while proxying Agent Cards and unbuffered responses. It supports 1.0/0.3 transport profiles, with task semantics and card accuracy enforced by upstream agents. It also supports the A2A 1.0 HTTP+JSON/REST operation paths, including message and task-subscription streams. REST POST requests accept `application/a2a+json` and compatible `application/json`. It does not implement gRPC, protocol translation, or complete A2A conformance.
 
 ## Migration from provider-specific configuration
 

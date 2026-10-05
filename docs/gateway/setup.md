@@ -159,3 +159,33 @@ The repository includes a Lua plugin test suite, config/hardening validation, an
 
 
 Files in this repository are licensed under Apache-2.0; see [LICENSE](../../LICENSE). The image is based on Kong Gateway OSS and adds `lua-resty-openidc`; consult the corresponding upstream projects for their license and notice obligations when redistributing the combined image. This repository does not include Kong Enterprise modules or other closed-source runtime components.
+
+## Gateway streaming integration tests
+
+The suite in `tests/streaming/` is independent of the banking demo and SDK. It runs the actual Kong image, MCP/A2A/token-exchange plugins, a disposable HTTPS issuer/STS, and controlled transport upstreams. It is a gateway boundary test, not a complete protocol server or conformance certification.
+
+```sh
+docker compose -f tests/streaming/compose.yml --profile tools build
+docker compose -f tests/streaming/compose.yml run --rm prepare
+docker compose -f tests/streaming/compose.yml up -d --wait fixture gateway
+docker compose -f tests/streaming/compose.yml run --rm tests
+docker compose -f tests/streaming/compose.yml down -v
+```
+
+CI runs this topology against the same gateway image used for the other runtime checks. Test keys and credentials are generated in separate named volumes, all TLS verification remains enabled, and no host ports are published. The control endpoints belong only to the disposable test fixture.
+
+The upstream emits a first event and waits for a separate release signal. The test must receive that event before releasing the final response; this detects response buffering without relying on an arbitrary timing delay. Coverage includes:
+
+- MCP `2026-07-28` POST progress/final responses, POST `subscriptions/listen`, metadata checks, and stripping legacy session headers.
+- A2A 1.0 JSON-RPC `SendStreamingMessage`/`SubscribeToTask`, REST message/task subscriptions, and ordered task/artifact/status events.
+- Rejection before upstream dispatch for missing/invalid tokens, wrong audiences and missing scopes; target-specific exchanged-token verification at the upstream.
+- Client disconnect propagation, idle upstream timeout, truncated SSE pass-through, and no retry after upstream failure.
+- Eight concurrent streams and a slow reader leaving a 2 MiB stream unread while an unrelated stream completes. These are bounded regression checks, not production capacity or memory-limit benchmarks.
+
+### Deployment requirements for streams
+
+Keep route `response_buffering: false`, service retries disabled, and choose service read/write timeouts for the workload. The supplied image and OpenShift deployment explicitly set `KONG_NGINX_PROXY_PROXY_IGNORE_CLIENT_ABORT=off`: a client disconnect must close the upstream proxy connection. The MCP upstream is responsible for detecting that close and cancelling its work. A2A disconnection closes the subscription; it does not issue `CancelTask` or imply cancelling the underlying task.
+
+Authentication and optional token exchange occur before upstream dispatch. This suite does not implement mid-stream token refresh/revalidation. Configure bounded stream lifetimes or reconnect policy according to your authorization requirements.
+
+Repeat the first-event and disconnect tests through your actual ingress/load balancer. Its buffering, idle timeouts, and HTTP/2 behavior can change results even when Kong's direct path works. Review additional response-transforming plugins for buffering and test the deployed plugin combination. Test production concurrency, memory, and backpressure limits separately; the controlled suite cannot certify them.

@@ -1,6 +1,6 @@
 local json = require "cjson.safe"
 local openidc = require "resty.openidc"
-local Gateway = { PRIORITY = 800, VERSION = "0.3.0" }
+local Gateway = { PRIORITY = 800, VERSION = "0.3.1" }
 
 local function contains(values, item)
   for _, value in ipairs(values or {}) do if value == item then return true end end
@@ -139,8 +139,9 @@ function Gateway:access(conf)
     end
     if method == "POST" then
       local content_type = kong.request.get_header("content-type")
-      if type(content_type) ~= "string" or content_type:lower():match("^%s*([^;%s]+)") ~= "application/json" then
-        return rest_error(415, "REST requires application/json")
+      local media_type = type(content_type) == "string" and content_type:lower():match("^%s*([^;%s]+)")
+      if media_type ~= "application/json" and media_type ~= "application/a2a+json" then
+        return rest_error(415, "REST requires application/a2a+json or application/json")
       end
       local raw = kong.request.get_raw_body()
       local body = raw and json.decode(raw)

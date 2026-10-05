@@ -1,0 +1,73 @@
+name: gateway-streaming-tests
+x-test: &test
+  image: open-agentic-streaming-tests:local
+  build:
+    context: ../..
+    dockerfile: tests/streaming/Dockerfile
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+services:
+  prepare:
+    <<: *test
+    profiles: [tools]
+    user: "0:0"
+    command: [prepare.py]
+    network_mode: none
+    volumes:
+      - fixture-credentials:/runtime/fixture
+      - gateway-credentials:/runtime/gateway
+      - client-credentials:/runtime/client
+  fixture:
+    <<: *test
+    command: [fixture.py]
+    volumes: ["fixture-credentials:/credentials:ro"]
+    networks: [front, back]
+    healthcheck:
+      test: [CMD, python, -c, "import ssl,urllib.request; urllib.request.urlopen('https://localhost:8443/healthz',context=ssl.create_default_context(cafile='/credentials/ca.pem'),timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  gateway:
+    image: ${STREAMING_GATEWAY_IMAGE:-open-agentic-gateway:streaming}
+    build:
+      context: ../..
+      dockerfile: gateway/Dockerfile
+    user: "1001:0"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      KONG_DECLARATIVE_CONFIG: /credentials/kong.json
+      KONG_PROXY_LISTEN: 0.0.0.0:8443 ssl
+      KONG_SSL_CERT: /credentials/tls.pem
+      KONG_SSL_CERT_KEY: /credentials/tls.key
+      KONG_LUA_SSL_TRUSTED_CERTIFICATE: /credentials/ca.pem
+      KONG_ANONYMOUS_REPORTS: "off"
+    volumes: ["gateway-credentials:/credentials:ro"]
+    networks: [front, back]
+    depends_on:
+      fixture: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, kong, health]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  tests:
+    <<: *test
+    profiles: [tools]
+    command: [-m, unittest, -v, test_gateway]
+    volumes: ["client-credentials:/credentials:ro"]
+    networks: [front]
+    depends_on:
+      gateway: {condition: service_healthy}
+networks:
+  front:
+  back:
+    internal: true
+volumes:
+  fixture-credentials:
+  gateway-credentials:
+  client-credentials:
