@@ -62,7 +62,7 @@ For documentation changes, check links, commands, and any Mermaid diagram syntax
 
 ## Protocol compatibility changes
 
-Follow the [MCP/A2A revision workflow](docs/protocols/interoperability.md#tracking-mcp-and-a2a-revisions) when adopting an upstream revision. Include versioned specification references, identify the gateway-owned changes, preserve intended legacy compatibility, and update the support inventory. CI checks committed profiles; new upstream versions do not become supported automatically. Keep gateway, SDK, and example claims separate.
+Follow the [MCP/A2A revision workflow](README.md#tracking-mcp-and-a2a-revisions) when adopting an upstream revision. Include versioned specification references, identify the gateway-owned changes, preserve intended legacy compatibility, and update the support inventory. CI checks committed profiles; new upstream versions do not become supported automatically. Keep gateway, SDK, and example claims separate.
 
 ## Send a pull request
 
